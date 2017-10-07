@@ -1,0 +1,69 @@
+version: "2"
+
+services:
+  zk:
+    image: bobrik/zookeeper
+    network_mode: bridge
+    ports:
+      - 2181:2181
+    environment:
+      ZK_CONFIG: tickTime=2000,initLimit=10,syncLimit=5,maxClientCnxns=128,forceSync=no,clientPort=2181
+      ZK_ID: 1
+
+  master:
+    image: mesosphere/mesos-master:1.4.0
+    network_mode: bridge
+    ports:
+      - 5050:5050
+    environment:
+      MESOS_HOSTNAME: localhost
+      MESOS_ZK: zk://zk:2181/mesos
+      MESOS_QUORUM: 1
+      MESOS_CLUSTER: mesos
+      MESOS_REGISTRY: replicated_log
+      MESOS_LOG_DIR: /var/log/mesos
+    links:
+      - zk
+    dns:
+      - 172.17.0.1
+
+  dns:
+    image: mesosphere/mesos-dns:v0.6.0
+    privileged: true
+    network_mode: bridge
+    ports: 
+      - 53:53/udp
+      - 8123:8123
+    links:
+      - zk
+      - master
+    command: [ "/usr/bin/mesos-dns", "-v=2", "-config=/mesos-dns.json" ]
+    volumes:
+      - ./mesos-dns.json:/mesos-dns.json
+      - /tmp
+    dns:
+      - 8.8.8.8
+
+  agent:
+    image: mesosphere/mesos-slave:1.4.0
+    privileged: true
+    network_mode: bridge
+    ports:
+      - 5051:5051
+    environment:
+      MESOS_HOSTNAME: localhost
+      MESOS_MASTER: zk://zk:2181/mesos
+      MESOS_CONTAINERIZERS: docker
+      MESOS_SYSTEMD_ENABLE_SUPPORT: 0
+      MESOS_PORT: 5051
+      MESOS_RESOURCES: ports(*):[11000-11999]
+      MESOS_WORK_DIR: /tmp/mesos
+      MESOS_LOG_DIR: /var/log/mesos
+    links:
+      - zk
+      - master
+      - dns
+    dns:
+      - 172.17.0.1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
